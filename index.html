@@ -536,6 +536,7 @@ const ans={contacto:'no',viajo:'no',viajoCont:'no',pecuario:'no',ingreso:'perime
 /* ====== Supabase (nube central) ====== */
 const SUPA_URL='https://hivwrxeavvhzwhltcncs.supabase.co';
 const SUPA_KEY='sb_publishable_C7JklhjyLW4-H5JbrZ2ToQ_cqzVXPsa';
+const APP_BASE_DEFAULT='https://monzon2603-ship-it.github.io/gnsregistrodepersonal/';
 const sb=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SUPA_URL,SUPA_KEY):null;
 let MODE='manager', GRANJA_ID=null, GRANJAS=[];
 
@@ -846,7 +847,7 @@ function renderMedidas(){
   $('#medidasChecks').innerHTML=MEDIDAS.map(m=>`<div class="checkrow ${CONFIG.medidas[m.k]?'on':''}" data-k="${m.k}"><div class="cb">${ICONS.checkSm}</div><div class="ct">${m.t}</div></div>`).join('');
   document.querySelectorAll('#medidasChecks .checkrow').forEach(r=>r.onclick=()=>{const k=r.dataset.k;CONFIG.medidas[k]=!CONFIG.medidas[k];r.classList.toggle('on',CONFIG.medidas[k]);});
 }
-function fillConfigForm(){$('#s-centro').value=CONFIG.centro;$('#s-clave').value=CONFIG.clave;$('#s-especie').value=CONFIG.especie;$('#s-vacio').value=CONFIG.vacio;$('#s-url').value=GRANJA_ID?(location.origin+location.pathname+'?granja='+GRANJA_ID):'';$('#s-url').setAttribute('readonly','');renderFocos();renderMedidas();}
+function fillConfigForm(){$('#s-centro').value=CONFIG.centro;$('#s-clave').value=CONFIG.clave;$('#s-especie').value=CONFIG.especie;$('#s-vacio').value=CONFIG.vacio;$('#s-url').value=(function(){try{return localStorage.getItem('gns_app_url')||'';}catch(e){return '';}})()||APP_BASE_DEFAULT;$('#s-url').removeAttribute('readonly');renderFocos();renderMedidas();}
 function renderFocos(){$('#focoList').innerHTML=CONFIG.focos.map((f,i)=>`<span class="foco-pill">${esc(f)}<button onclick="rmFoco(${i})">×</button></span>`).join('')||`<span style="font-size:13px;color:var(--ink-faint)">Ningún sitio marcado.</span>`;$('#focos-list').innerHTML=CONFIG.focos.map(f=>`<option value="${esc(f)}">`).join('');}
 window.rmFoco=i=>{CONFIG.focos.splice(i,1);renderFocos();};
 $('#addFoco').onclick=()=>{const v=$('#s-foco-input').value.trim();if(v){CONFIG.focos.push(v);$('#s-foco-input').value='';renderFocos();}};
@@ -859,10 +860,20 @@ $('#btnReset')&&($('#btnReset').onclick=()=>{});
 $('#btnPoster').onclick=()=>{go('poster');openPoster();};
 $('#posterBack').onclick=()=>go('ajustes');
 $('#posterPrint').onclick=()=>window.print();
+function buildVisitorUrl(){
+  if(!GRANJA_ID)return '';
+  let b=($('#s-url')?$('#s-url').value:'').trim()||APP_BASE_DEFAULT;
+  b=b.split('#')[0].split('?')[0];
+  if(!/^https?:\/\//i.test(b))return '';
+  try{localStorage.setItem('gns_app_url',b);}catch(e){}
+  return b+'?granja='+GRANJA_ID;
+}
 function openPoster(){
   $('#posterCentro').textContent=CONFIG.centro||'Unidad de producción';
-  const box=$('#qrbox'),url=GRANJA_ID?(location.origin+location.pathname+'?granja='+GRANJA_ID):'';
-  if(!url){box.innerHTML=`<div id="qrfallback">Crea o selecciona una granja primero.</div>`;return;}
+  const box=$('#qrbox');
+  if(!GRANJA_ID){box.innerHTML=`<div id="qrfallback">Crea o selecciona una granja primero.</div>`;return;}
+  const url=buildVisitorUrl();
+  if(!url){box.innerHTML=`<div id="qrfallback">En Ajustes, escribe la liga pública de la app (https://…) y vuelve a abrir el cartel.</div>`;return;}
   box.innerHTML='';
   const make=()=>{try{new QRCode(box,{text:url,width:180,height:180,correctLevel:QRCode.CorrectLevel.M});}catch(e){box.innerHTML=`<div id="qrfallback">${esc(url)}</div>`;}};
   if(window.QRCode){make();}else{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';s.onload=make;s.onerror=()=>{box.innerHTML=`<div id="qrfallback">Sin conexión para generar QR. Liga:<br>${esc(url)}</div>`;};document.head.appendChild(s);}
