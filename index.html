@@ -245,6 +245,8 @@
   .login-screen.show{display:flex}
   .login-card{background:#fff;color:var(--ink);border-radius:18px;padding:28px 24px;width:100%;max-width:360px;box-shadow:0 18px 50px rgba(0,0,0,.32)}
   .login-logo{height:42px;width:auto;margin:0 auto 18px;display:block}
+  body.role-operador .nav{display:none}
+  body.role-operador{padding-bottom:24px}
   @media print{
     body{background:#fff;padding:0}
     .topbar,.ticker,.nav,.no-print,.btn{display:none!important}
@@ -453,6 +455,15 @@
       <button class="btn ghost" id="btnPoster">Ver cartel para imprimir</button>
     </div>
 
+    <div class="card pad" id="usuariosCard" style="margin-top:14px">
+      <div class="card-eyebrow">Usuarios de esta granja</div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:-4px 0 12px">Da acceso a otras personas. Primero crea su cuenta en <b>Supabase → Authentication → Add user</b> (correo y contraseña); aquí la ligas a esta granja con su rol.</p>
+      <div class="field"><label>Correo de la persona</label><input id="u-email" type="email" placeholder="persona@correo.com"></div>
+      <div class="field"><label>Rol</label><select id="u-rol"><option value="operador">Usuario común — solo Registro</option><option value="admin">Administrador — acceso total</option></select></div>
+      <button class="btn dark" id="addUser">Dar acceso</button>
+      <div class="saved-flash" id="userFlash"></div>
+      <div id="userList" style="margin-top:14px"></div>
+    </div>
     <div class="danger-zone" style="border-color:var(--line)">
       <p>Sesión iniciada como encargado. La información se guarda de forma segura en la nube de GNS Agroprocesos.</p>
       <button class="btn ghost" id="btnLogoutAjustes">Cerrar sesión</button>
@@ -539,6 +550,7 @@ const SUPA_KEY='sb_publishable_C7JklhjyLW4-H5JbrZ2ToQ_cqzVXPsa';
 const APP_BASE_DEFAULT='https://monzon2603-ship-it.github.io/gnsregistrodepersonal/';
 const sb=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SUPA_URL,SUPA_KEY):null;
 let MODE='manager', GRANJA_ID=null, GRANJAS=[];
+let ROL_MAP={}, MY_ROL='admin';
 
 function rowToVisit(r){return {id:r.id,ts:r.ts?Date.parse(r.ts):Date.now(),nombre:r.nombre,tel:r.tel||'',empresa:r.empresa||'',motivo:r.motivo||'—',contacto:r.contacto,fecha:r.fecha,especie:r.especie||'',sitio:r.sitio||'',viajo:r.viajo,viajoCont:r.viajo_cont,pecuario:r.pecuario,ingreso:r.ingreso,veh:r.veh,vehlav:r.vehlav,tier:r.tier,score:r.score||0,reasons:r.reasons||[],estado:r.estado,aplicadas:r.aplicadas||[],firma:r.firma||''};}
 function visitToPayload(v){return {granja_id:GRANJA_ID,nombre:v.nombre,tel:v.tel,empresa:v.empresa,motivo:v.motivo,contacto:v.contacto,fecha:v.fecha||null,especie:v.especie,sitio:v.sitio,viajo:v.viajo,viajo_cont:v.viajoCont,pecuario:v.pecuario,ingreso:v.ingreso,veh:v.veh,vehlav:v.vehlav,tier:v.tier,score:v.score,reasons:v.reasons,estado:v.estado,aplicadas:v.aplicadas,firma:v.firma};}
@@ -905,13 +917,14 @@ async function crearGranja(nombre){
   const {data,error}=await sb.rpc('crear_granja',{nombre});
   if(error){alert('No se pudo crear la granja: '+error.message);return null;}
   const {data:gs}=await sb.from('granjas').select('*').order('creada',{ascending:true});
-  GRANJAS=gs||[]; poblarSelector(); return data;
+  GRANJAS=gs||[]; if(data)ROL_MAP[data]='admin'; poblarSelector(); return data;
 }
 async function activarGranja(gid){
   GRANJA_ID=gid; try{localStorage.setItem('gns_cur_granja',gid);}catch(e){}
   const g=GRANJAS.find(x=>x.id===gid); if(g)setConfigFromGranja(g);
+  applyRole();
   await cargarVisitas();
-  fillConfigForm(); applyCentro(); refreshBadge();
+  fillConfigForm(); applyCentro(); refreshBadge(); renderUsuarios();
   if($('#granjaSel'))$('#granjaSel').value=gid;
   if($('#v-panel').classList.contains('active'))renderPanel();
   setTimeout(sizeCanvas,60);
@@ -920,6 +933,8 @@ async function loadManager(){
   document.body.classList.add('manager');
   const {data,error}=await sb.from('granjas').select('*').order('creada',{ascending:true});
   GRANJAS=error?[]:(data||[]);
+  const {data:mem}=await sb.from('granja_usuarios').select('granja_id,rol');
+  ROL_MAP={}; (mem||[]).forEach(m=>ROL_MAP[m.granja_id]=m.rol);
   if(!GRANJAS.length){
     const nombre=prompt('No tienes granjas todavía. Escribe el nombre de tu primera granja:','Granja 1');
     if(!nombre){showLogin(true);return;}
@@ -967,6 +982,35 @@ if($('#granjaSel'))$('#granjaSel').onchange=async e=>{
 /* cerrar sesión */
 async function cerrarSesion(){ if(sb)await sb.auth.signOut(); location.href=location.origin+location.pathname; }
 ['btnLogout','btnLogoutAjustes'].forEach(id=>{const b=document.getElementById(id);if(b)b.onclick=cerrarSesion;});
+/* roles */
+function applyRole(){
+  MY_ROL=ROL_MAP[GRANJA_ID]||'encargado';
+  const isAdmin=MY_ROL==='admin';
+  document.body.classList.toggle('role-operador',!isAdmin);
+  if(!isAdmin && !$('#v-registro').classList.contains('active')) go('registro');
+}
+async function renderUsuarios(){
+  const card=$('#usuariosCard'); if(!card)return;
+  if(MY_ROL!=='admin'){card.style.display='none';return;}
+  card.style.display='';
+  const {data,error}=await sb.rpc('miembros_granja',{gid:GRANJA_ID});
+  const box=$('#userList'); if(!box)return;
+  if(error){box.innerHTML='';return;}
+  box.innerHTML=(data||[]).map(m=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-soft)"><div><div style="font-size:13.5px;font-weight:600">${esc(m.email)}</div><div style="font-size:11.5px;color:var(--ink-soft)">${m.rol==='admin'?'Administrador':'Usuario común'}</div></div><button class="btn ghost sm" style="width:auto" onclick="quitarMiembro('${m.user_id}')">Quitar</button></div>`).join('')||'<div style="font-size:13px;color:var(--ink-faint)">Solo tú tienes acceso.</div>';
+}
+window.quitarMiembro=async(uid)=>{ if(!confirm('¿Quitar el acceso de esta persona?'))return; await sb.rpc('quitar_miembro',{p_granja:GRANJA_ID,p_user:uid}); renderUsuarios(); };
+if($('#addUser'))$('#addUser').onclick=async()=>{
+  const email=$('#u-email').value.trim(), rol=$('#u-rol').value;
+  if(!email)return;
+  const btn=$('#addUser'); btn.disabled=true;
+  const {data,error}=await sb.rpc('agregar_miembro',{p_granja:GRANJA_ID,p_email:email,p_rol:rol});
+  btn.disabled=false;
+  if(error){alert('Error: '+error.message);return;}
+  if(data==='sin-cuenta'){alert('Esa persona aún no tiene cuenta. Créala primero en Supabase → Authentication → Add user (con su correo y una contraseña), y luego agrégala aquí.');return;}
+  if(data==='no-autorizado'){alert('Solo un administrador puede agregar usuarios.');return;}
+  $('#u-email').value=''; const fl=$('#userFlash'); fl.textContent='✓ Acceso otorgado'; fl.classList.add('show'); setTimeout(()=>fl.classList.remove('show'),1800);
+  renderUsuarios();
+};
 /* arranque */
 (async function(){
   if(!sb){alert('No se pudo conectar con la nube. Revisa tu conexión a internet e intenta de nuevo.');return;}
